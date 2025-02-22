@@ -1,7 +1,9 @@
 import bcrypt from "bcryptjs";
+import jwt from "jsonwebtoken";
 import userModel from "../models/userModel.js";
 import TransactionModel from '../models/transactionModel.js';
 import { StatusCodes } from "http-status-codes";
+import transactionModel from "../models/transactionModel.js";
 
 export const signUp = async (req, res) => {
   const midtransUrl = process.env.MIDTRANS_URL;
@@ -66,5 +68,65 @@ export const signUp = async (req, res) => {
     return res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({
       error: "Internal server error"
   });
+  }
+}
+
+export const signIn = async (req, res) => {
+  try {
+    const body = req.body;
+
+    const existingUser = await userModel.findOne().where('email').equals(body.email)
+
+    if(!existingUser) {
+      return res.status(StatusCodes.BAD_REQUEST).json({
+        message: "User not found",
+      })
+    }
+
+    const isMatch = await bcrypt.compare(body.password, existingUser.password);
+
+    if(!isMatch){
+      return res.status(StatusCodes.BAD_REQUEST).json({
+        message: "Invalid credentials",
+      })
+    }
+
+    const isValidUser = await transactionModel.findOne({
+      user: existingUser._id,
+      status: "success",
+    })
+
+    if(existingUser.role === "manager" && !isValidUser) {
+      return res.status(StatusCodes.BAD_REQUEST).json({
+        message: "user not verified",
+      })
+    }
+
+    const token = jwt.sign(
+      {
+        data: {
+          id: existingUser._id.toString(),
+        }
+      },
+      process.env.JWT_SECRET,
+      {
+        expiresIn: "1d",
+      }
+    )
+
+    return res.status(StatusCodes.OK).json({
+      message: "Sign in success",
+      data: {
+        name: existingUser.name,
+        email: existingUser.email,
+        token,
+        role: existingUser.role
+      }
+    })
+  } catch (error) {
+    console.log(error);
+    return res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({
+      error: "Internal server error",
+    })
   }
 }
